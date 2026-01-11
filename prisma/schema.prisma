@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  nip           String        @id
+  name          String
+  statusVat     String
+  trustScore    Int
+  riskLevel     String
+  rawData       Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relacje
+  phones        PhoneNumber[] // Firma może mieć wiele numerów
+  reports       Report[]      // Zgłoszenia dotyczące firmy
+}
+
+model PhoneNumber {
+  number        String   @id // Pełny numer z prefiksem np. "+43123456789"
+  countryCode   String   // np. "PL", "AT"
+  trustScore    Int      @default(50)
+  
+  // Opcjonalne powiązanie z firmą (jeśli wiemy, czyj to numer)
+  companyNip    String?
+  company       Company? @relation(fields: [companyNip], references: [nip])
+
+  reports       Report[] // Zgłoszenia dotyczące numeru
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Report {
+  id          Int      @id @default(autoincrement())
+  
+  // Polimorfizm "lite" - zgłoszenie dotyczy ALBO firmy ALBO telefonu
+  companyNip  String?
+  company     Company? @relation(fields: [companyNip], references: [nip])
+  
+  phoneNumber String?
+  phone       PhoneNumber? @relation(fields: [phoneNumber], references: [number])
+
+  rating      Int
+  reason      String
+  comment     String?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+}
