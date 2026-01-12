@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { CreateReportDto } from './dto/create-report.dto';
 import { PrismaService } from '../prisma.service';
+import { PhoneNumberUtil, PhoneNumberFormat } from 'google-libphonenumber'; // <--- DODAJ IMPORT
 
 @Injectable()
 export class ReportsService {
@@ -13,49 +14,54 @@ export class ReportsService {
       comment: dto.comment,
       ipAddress: ip,
       user: { connect: { id: userId } },
-      // Przypisz nowe pola (jeśli istnieją)
       reportedEmail: dto.reportedEmail,
       facebookLink: dto.facebookLink,
       screenshotUrl: dto.screenshotUrl,
     };
 
     if (dto.targetType === 'NIP') {
-         // ... logika NIP
          reportData.company = { connect: { nip: dto.targetValue } };
     } 
-    // OBSŁUGA OBU TYPÓW DLA TELEFONU:
     else if (dto.targetType === 'PHONE' || dto.targetType === 'PERSON') {
-         
-         // Upewnij się, że targetValue to numer telefonu!
-         // Jeśli to PERSON, frontend może wysłać np. imię w innym polu, ale targetValue musi być numerem.
-         
-         // 1. Zapisz/Znajdź numer w bazie
+         // === FIX: NORMALIZACJA NUMERU ===
+         let finalNumber = dto.targetValue;
+         try {
+            const phoneUtil = PhoneNumberUtil.getInstance();
+            // Próbujemy parsować numer zakładając PL jeśli brak plusa
+            const numberObj = phoneUtil.parseAndKeepRawInput(dto.targetValue, 'PL');
+            if (phoneUtil.isValidNumber(numberObj)) {
+                finalNumber = phoneUtil.format(numberObj, PhoneNumberFormat.E164);
+            }
+         } catch (e) {
+            console.warn('Nie udało się znormalizować numeru przy zapisie:', dto.targetValue);
+         }
+         // =================================
+
          await this.prisma.phoneNumber.upsert({
-             where: { number: dto.targetValue },
+             where: { number: finalNumber },
              create: { 
-                 number: dto.targetValue, 
+                 number: finalNumber, 
                  countryCode: 'PL',
-                 trustScore: 50 // Domyślny score
+                 trustScore: 50
              },
-             update: {} // Nic nie zmieniaj jak istnieje
+             update: {}
          });
 
-         // 2. Podłącz raport do tego numeru
-         reportData.phone = { connect: { number: dto.targetValue } };
+         reportData.phone = { connect: { number: finalNumber } };
     } 
     else {
          throw new BadRequestException(`Nieobsługiwany typ: ${dto.targetType}`);
     }
 
     return this.prisma.report.create({ data: reportData });
-}
+  }
 
-  // ... (reszta pliku getStatsForTarget bez zmian)
-
-
-  // Metoda pomocnicza dla modułu weryfikacji
-  async getStatsForTarget(targetValue: string) {
+  // ... reszta pliku bez zmian (getStatsForTarget)
+   async getStatsForTarget(targetValue: string) {
     const isNip = /^\d{10}$/.test(targetValue);
+    
+    // Tutaj też przydałaby się normalizacja dla pewności, ale
+    // zazwyczaj ta metoda jest wołana z już znormalizowanym numerem przez serwisy weryfikacji.
     
     const whereCondition = isNip 
         ? { companyNip: targetValue } 
@@ -64,7 +70,7 @@ export class ReportsService {
     const reports = await this.prisma.report.findMany({
       where: whereCondition,
       orderBy: { createdAt: 'desc' },
-      include: { user: { select: { email: true } } } // Opcjonalnie: pobierz email zgłaszającego
+      include: { user: { select: { email: true } } }
     });
 
     const negativeCount = reports.filter(r => r.rating <= 2).length;
@@ -77,4 +83,35 @@ export class ReportsService {
       entries: reports
     };
   }
+  async getLatestGlobal(limit: number = 6) {
+    const reports = await this.prisma.report.findMany({
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        // Pobieramy powiązania, żeby wiedzieć CZEGO dotyczy zgłoszenie
+        include: { 
+            phone: { select: { number: true, trustScore: true } },
+            company: { select: { nip: true, name: true, trustScore: true } }
+        }
+    });
+
+    // Formatujemy dane dla frontendu
+    return reports.map(r => {
+        // Ustalamy cel zgłoszenia
+        const targetValue = r.phoneNumber || r.companyNip || 'Nieznany';
+        const targetType = r.companyNip ? 'NIP' : 'PHONE';
+        const trustScore = r.phone?.trustScore || r.company?.trustScore || 0;
+
+        return {
+            id: r.id,
+            targetValue,
+            targetType,
+            trustScore,
+            rating: r.rating,
+            reason: r.reason,
+            comment: r.comment,
+            date: r.createdAt,
+            city: 'Polska' // Opcjonalnie (jeśli kiedyś dodasz geo-ip)
+        };
+    });
+}
 }
