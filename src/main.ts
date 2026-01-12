@@ -5,16 +5,18 @@ import { ValidationPipe } from '@nestjs/common';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // --- DODAJ TĘ LINIJKĘ ---
-  app.enableCors(); 
-  // To pozwala każdemu (w tym Next.js) pytać o dane.
-  // ------------------------
+  // 1. Włączamy CORS dla frontendu (Port 3000)
+  app.enableCors({
+    origin: 'http://localhost:3000',
+    credentials: true,
+  });
 
   app.useGlobalPipes(new ValidationPipe({
     transform: true,
     whitelist: true,
   }));
   
-  await app.listen(3000);
+  // 2. Zmieniamy port na 3001 (bo Next.js zajmuje 3000)
+  await app.listen(3001);
 }
 bootstrap();

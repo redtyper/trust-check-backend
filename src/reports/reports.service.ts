@@ -6,54 +6,55 @@ import { PrismaService } from '../prisma.service';
 export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreateReportDto, ip: string) {
-    // 1. Przygotuj dane do zapisu
+  async create(dto: CreateReportDto, userId: number, ip: string) {
     const reportData: any = {
       rating: dto.rating,
       reason: dto.reason,
       comment: dto.comment,
       ipAddress: ip,
+      user: { connect: { id: userId } },
+      // Przypisz nowe pola (jeśli istnieją)
+      reportedEmail: dto.reportedEmail,
+      facebookLink: dto.facebookLink,
+      screenshotUrl: dto.screenshotUrl,
     };
 
-    // 2. Logika warunkowa: NIP czy Telefon?
     if (dto.targetType === 'NIP') {
-      // Podpinamy pod firmę (musi istnieć - tutaj upraszczamy, że user zgłasza NIP)
-      // W wersji PRO powinniśmy najpierw sprawdzić czy firma istnieje w tabeli Company.
-      // Ale żeby MVP działało, zakładamy optymistycznie:
-      
-      // Upsert dummy company if not exists (żeby klucz obcy zadziałał)
-      await this.prisma.company.upsert({
-          where: { nip: dto.targetValue },
-          create: { nip: dto.targetValue, name: 'Zgłoszona przez Usera', statusVat: 'Nieznany', trustScore: 50, riskLevel: 'Nieznany' },
-          update: {} 
-      });
+         // ... logika NIP
+         reportData.company = { connect: { nip: dto.targetValue } };
+    } 
+    // OBSŁUGA OBU TYPÓW DLA TELEFONU:
+    else if (dto.targetType === 'PHONE' || dto.targetType === 'PERSON') {
+         
+         // Upewnij się, że targetValue to numer telefonu!
+         // Jeśli to PERSON, frontend może wysłać np. imię w innym polu, ale targetValue musi być numerem.
+         
+         // 1. Zapisz/Znajdź numer w bazie
+         await this.prisma.phoneNumber.upsert({
+             where: { number: dto.targetValue },
+             create: { 
+                 number: dto.targetValue, 
+                 countryCode: 'PL',
+                 trustScore: 50 // Domyślny score
+             },
+             update: {} // Nic nie zmieniaj jak istnieje
+         });
 
-      reportData.company = { connect: { nip: dto.targetValue } };
-
-    } else if (dto.targetType === 'PHONE') {
-      // Podpinamy pod telefon
-      // Musimy najpierw utworzyć numer w bazie, jeśli go nie ma!
-      await this.prisma.phoneNumber.upsert({
-          where: { number: dto.targetValue },
-          create: { number: dto.targetValue, countryCode: 'XX' },
-          update: {}
-      });
-
-      reportData.phone = { connect: { number: dto.targetValue } };
-    } else {
-        throw new BadRequestException('Nieobsługiwany typ zgłoszenia');
+         // 2. Podłącz raport do tego numeru
+         reportData.phone = { connect: { number: dto.targetValue } };
+    } 
+    else {
+         throw new BadRequestException(`Nieobsługiwany typ: ${dto.targetType}`);
     }
 
-    return this.prisma.report.create({
-      data: reportData,
-    });
-  }
+    return this.prisma.report.create({ data: reportData });
+}
+
+  // ... (reszta pliku getStatsForTarget bez zmian)
+
 
   // Metoda pomocnicza dla modułu weryfikacji
   async getStatsForTarget(targetValue: string) {
-    // Tutaj musimy sprawdzić, czy szukamy po NIP czy po Telefonie
-    // Uproszczenie: Jeśli ma 10 cyfr to NIP, inaczej Telefon (lub sprawdzamy oba pola)
-    
     const isNip = /^\d{10}$/.test(targetValue);
     
     const whereCondition = isNip 
@@ -62,7 +63,8 @@ export class ReportsService {
 
     const reports = await this.prisma.report.findMany({
       where: whereCondition,
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      include: { user: { select: { email: true } } } // Opcjonalnie: pobierz email zgłaszającego
     });
 
     const negativeCount = reports.filter(r => r.rating <= 2).length;
@@ -72,7 +74,7 @@ export class ReportsService {
       total: reports.length,
       negative: negativeCount,
       positive: positiveCount,
-      entries: reports // zwracamy też listę
+      entries: reports
     };
   }
 }

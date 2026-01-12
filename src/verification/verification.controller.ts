@@ -17,7 +17,7 @@ export class VerificationController {
     // Tutaj wywołujemy serwis! Logika jest tam.
     return this.verificationService.search(query);
   }
-
+  
   @Get('company/:nip')
   @UsePipes(new ValidationPipe({ transform: true }))
   async checkCompany(@Param() params: CheckCompanyDto) {

@@ -1,3 +1,5 @@
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -5,6 +7,16 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String   // Hashowane hasło
+  role      String   @default("USER") // USER, ADMIN
+  createdAt DateTime @default(now())
+  
+  reports   Report[] // Jeden user, wiele zgłoszeń
 }
 
 model Company {
@@ -17,21 +29,19 @@ model Company {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  // Relacje
-  phones        PhoneNumber[] // Firma może mieć wiele numerów
-  reports       Report[]      // Zgłoszenia dotyczące firmy
+  phones        PhoneNumber[]
+  reports       Report[]
 }
 
 model PhoneNumber {
-  number        String   @id // Pełny numer z prefiksem np. "+43123456789"
-  countryCode   String   // np. "PL", "AT"
+  number        String   @id
+  countryCode   String
   trustScore    Int      @default(50)
   
-  // Opcjonalne powiązanie z firmą (jeśli wiemy, czyj to numer)
   companyNip    String?
   company       Company? @relation(fields: [companyNip], references: [nip])
 
-  reports       Report[] // Zgłoszenia dotyczące numeru
+  reports       Report[]
   
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -40,7 +50,9 @@ model PhoneNumber {
 model Report {
   id          Int      @id @default(autoincrement())
   
-  // Polimorfizm "lite" - zgłoszenie dotyczy ALBO firmy ALBO telefonu
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+
   companyNip  String?
   company     Company? @relation(fields: [companyNip], references: [nip])
   
@@ -51,5 +63,12 @@ model Report {
   reason      String
   comment     String?
   ipAddress   String?
+  
+  // === NOWE POLA (Dla zgłoszeń osób prywatnych) ===
+  reportedEmail     String?  // Email oszusta
+  facebookLink      String?  // Link do profilu FB/OLX
+  screenshotUrl     String?  // Link do dowodu (np. imgur)
+  // ================================================
+
   createdAt   DateTime @default(now())
 }

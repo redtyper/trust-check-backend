@@ -12,7 +12,7 @@ export class VerificationService {
     private readonly reportsService: ReportsService,
   ) {}
 
-  // === METODA SEARCH (To jej brakowało!) ===
+  // === METODA SEARCH ===
   async search(query: string) {
     const cleanQuery = query.replace(/[^a-zA-Z0-9]/g, '');
 
@@ -29,8 +29,17 @@ export class VerificationService {
     
     // Logika Telefon
     if (type === 'PHONE') {
-        // Zwracamy info dla frontendu, żeby przekierował na /report/phone/...
-        return { type: 'PHONE', query: cleanQuery };
+        // Sprawdźmy czy numer istnieje w bazie, żeby frontend wiedział czy przekierować
+        const phoneEntry = await this.prisma.phoneNumber.findUnique({
+            where: { number: cleanQuery }
+        });
+
+        // Zwracamy info dla frontendu
+        return { 
+            type: 'PHONE', 
+            query: cleanQuery,
+            exists: !!phoneEntry // Frontend może tego użyć do decyzji
+        };
     }
 
     return { error: 'Niepoprawny format. Wpisz NIP (10 cyfr) lub Telefon.' };
@@ -43,7 +52,7 @@ export class VerificationService {
     // Pobierz z bazy (WRAZ Z TELEFONAMI!)
     const cachedCompany = await this.prisma.company.findUnique({
       where: { nip },
-      include: { phones: true } // <--- Ważne dla wyświetlania telefonów
+      include: { phones: true }
     });
 
     const ONE_DAY = 24 * 60 * 60 * 1000;
@@ -112,13 +121,24 @@ export class VerificationService {
       source: source,
       company: {
         name: companyData ? companyData.name : 'Brak danych',
+        nip: companyData ? companyData.nip : nip, // <--- NAPRAWA: Dodano pole NIP
         vat: companyData ? companyData.statusVat : 'Nieznany',
-        phones: phones // Przekazujemy telefony do frontendu
+        phones: phones
       },
       community: {
         alerts: reportStats.negative,
         totalReports: reportStats.total,
-        latestComments: reportStats.entries.slice(-3)
+        // MAPOWANIE KOMENTARZY (Żeby działał OSINT na frontendzie)
+        latestComments: reportStats.entries.slice(-5).map(r => ({
+            id: r.id,
+            date: r.createdAt,
+            reason: r.reason,
+            comment: r.comment,
+            rating: r.rating,
+            reportedEmail: r.reportedEmail,
+            facebookLink: r.facebookLink,
+            screenshotUrl: r.screenshotUrl
+        }))
       }
     };
   }
@@ -141,6 +161,7 @@ export class VerificationService {
   }
 
   async updateCompany(nip: string, data: any) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { phones, ...companyData } = data;
     return this.prisma.company.update({
       where: { nip },
