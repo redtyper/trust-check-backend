@@ -1,7 +1,7 @@
 import {
   Controller,
-  Post,
   Get,
+  Post,
   Body,
   Ip,
   UseGuards,
@@ -24,13 +24,13 @@ export class ReportsController {
   getLatest() {
     return this.reportsService.getLatestGlobal();
   }
-
+  
   @Post()
   @UseGuards(AuthGuard('jwt'))
   create(
     @Body() createReportDto: CreateReportDto,
     @Ip() ip: string,
-    @Request() req: any
+    @Request() req: any,
   ) {
     return this.reportsService.create(createReportDto, req.user.userId, ip);
   }
@@ -40,16 +40,16 @@ export class ReportsController {
   @UseInterceptors(FileInterceptor('file'))
   async uploadScreenshot(
     @UploadedFile() file: Express.Multer.File,
-    @Request() req: any
+    @Request() req: any,
   ) {
     if (!file) {
       throw new BadRequestException('Brak pliku do uploadowania');
     }
-    
     const result = await this.reportsService.uploadScreenshot(file);
     return {
       path: result,
-      url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/${result}`,
+      url: `${process.env.BACKEND_URL || 'http://localhost:3001'}${result}`,
     };
   }
 }
+

@@ -8,76 +8,101 @@ export class PhoneVerificationService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async checkPhone(rawNumber: string, countryCode: string = 'PL') {
-    let formattedNumber: string;
-    let detectedCountry: string = 'XX';
+  async checkPhone(rawInput: string, countryCode: string = 'PL') {
+    let formattedQuery = rawInput;
+    let isPhone = false;
 
+    // 1. Parsowanie
     try {
-      const number = this.phoneUtil.parseAndKeepRawInput(rawNumber, countryCode);
-      if (!this.phoneUtil.isValidNumber(number)) throw new Error('Invalid');
-      formattedNumber = this.phoneUtil.format(number, PhoneNumberFormat.E164);
-      detectedCountry = this.phoneUtil.getRegionCodeForNumber(number) || 'Nieznany';
+      if (/[a-zA-Z]/.test(rawInput)) {
+        throw new Error('Not a phone number');
+      }
+      const number = this.phoneUtil.parseAndKeepRawInput(rawInput, countryCode);
+      if (this.phoneUtil.isValidNumber(number)) {
+        formattedQuery = this.phoneUtil.format(number, PhoneNumberFormat.E164);
+        isPhone = true;
+      } else {
+         throw new Error('Invalid number');
+      }
     } catch (e) {
-      throw new BadRequestException(`Niepoprawny numer telefonu: ${rawNumber}`);
+      isPhone = false;
+      formattedQuery = rawInput; 
     }
 
-    const db: any = this.prisma;
-    // Pobieramy numer wraz z raportami
-    let phoneEntry = await db.phoneNumber.findUnique({
-      where: { number: formattedNumber },
-      include: {
-        reports: {
-            orderBy: { createdAt: 'desc' },
-            take: 20 // Pobierz więcej raportów
+    // 2. Pobieranie danych
+    let dbEntry: any = null;
+    let reports: any[] = [];
+
+    if (isPhone) {
+      dbEntry = await this.prisma.phoneNumber.findUnique({
+        where: { number: formattedQuery },
+        include: { 
+          reports: { orderBy: { createdAt: 'desc' } }, 
+          company: true 
         },
-        company: true
+      });
+      reports = dbEntry?.reports || [];
+    } else {
+      // Osoba
+      dbEntry = await this.prisma.person.findFirst({
+        where: { name: formattedQuery },
+        include: { 
+          reports: { orderBy: { createdAt: 'desc' } }
+        },
+      });
+      reports = dbEntry?.reports || [];
+    }
+
+    // 3. Kalkulacja
+    let trustScore = dbEntry?.trustScore ?? 50;
+    let riskLevel = dbEntry?.riskLevel ?? 'Nieznany';
+    const negativeReports = reports.filter((r) => r.rating <= 2).length;
+
+    if (!dbEntry) {
+      if (negativeReports > 0) {
+        trustScore -= negativeReports * 20;
+        riskLevel = 'Wysoki';
+      } else {
+        riskLevel = 'Brak danych';
       }
-    });
-
-    // Kalkulacja TrustScore
-    let trustScore = phoneEntry ? phoneEntry.trustScore : 50; 
-    let riskLevel = 'Średni (Brak danych)';
-
-    const reports = phoneEntry?.reports || [];
-    const negativeReports = reports.filter(r => r.rating <= 2).length;
-
-    if (negativeReports > 0) {
-      trustScore -= (negativeReports * 20);
-      riskLevel = 'Wysoki (Zgłoszenia)';
-    } else if (phoneEntry?.company) {
-      trustScore += 20; 
-      riskLevel = 'Niski (Zweryfikowany Firma)';
+    } else {
+        if (negativeReports > 0 && trustScore === 50) {
+             trustScore -= negativeReports * 15;
+             riskLevel = 'Podwyższone';
+        }
     }
     if (trustScore < 0) trustScore = 0;
 
-    // === FIX: ZWRACANIE STRUKTURY ZGODNEJ Z FRONTENDEM ===
+    // 4. Return
     return {
-      query: formattedNumber, // Zwracamy sformatowany numer jako główny
+      query: formattedQuery,
+      isPhone: isPhone, 
       trustScore,
       riskLevel,
-      source: 'DB',
-      
-      // Dane Firmy (jeśli połączony)
-      company: phoneEntry?.company ? {
-          name: phoneEntry.company.name,
-          nip: phoneEntry.company.nip,
-          vat: phoneEntry.company.statusVat
+      source: dbEntry ? 'DB' : 'None',
+      company: isPhone && dbEntry?.company ? {
+        name: dbEntry.company.name,
+        nip: dbEntry.company.nip,
+        vat: dbEntry.company.statusVat,
       } : null,
-
-      // Dane Społeczności (To naprawia wyświetlanie raportów!)
       community: {
-          alerts: negativeReports,
-          totalReports: reports.length,
-          latestComments: reports.map(r => ({
-              date: r.createdAt,
-              reason: r.reason,
-              comment: r.comment,
-              rating: r.rating,
-              reportedEmail: r.reportedEmail,
-              facebookLink: r.facebookLink,
-              screenshotUrl: r.screenshotUrl
-          }))
-      }
+        alerts: negativeReports,
+        totalReports: reports.length,
+        // TU BYŁ BŁĄD - BRAKOWAŁO PÓL W MAPOWANIU
+        latestComments: reports.map((r) => ({
+          date: r.createdAt,
+          reason: r.reason,
+          comment: r.comment,
+          rating: r.rating,
+          // PEŁNY OSINT ZWRACANY DO FRONTENDU:
+          phoneNumber: r.phoneNumber, // <--- KLUCZOWE
+          reportedEmail: r.reportedEmail,
+          facebookLink: r.facebookLink,
+          bankAccount: r.bankAccount,
+          screenshotUrl: r.screenshotUrl, 
+          screenshotPath: r.screenshotPath, 
+        })),
+      },
     };
   }
 }

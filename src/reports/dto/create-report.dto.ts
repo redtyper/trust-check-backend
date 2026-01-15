@@ -2,11 +2,11 @@ import { IsString, IsInt, Min, Max, IsIn, IsOptional, IsEmail, IsUrl, IsBoolean 
 
 export class CreateReportDto {
   @IsString()
-  @IsIn(['NIP', 'PHONE', 'PERSON', 'BANK_ACCOUNT'])
+  @IsIn(['COMPANY', 'PERSON']) // Tylko dwa dozwolone typy
   targetType: string;
 
   @IsString()
-  targetValue: string;
+  targetValue: string; // NIP (dla Company) lub Imię/Nazwisko/Alias (dla Person)
 
   @IsInt()
   @Min(1)
@@ -19,30 +19,35 @@ export class CreateReportDto {
   @IsString()
   comment: string;
 
-  // OSINT
+  // Pola opcjonalne wspólne dla obu typów
+  @IsOptional()
+  @IsString()
+  phoneNumber?: string; // Teraz opcjonalne pole, a nie targetType
+
   @IsOptional()
   @IsEmail()
   reportedEmail?: string;
 
   @IsOptional()
-  @IsUrl()
+  @IsString() // Link może nie być URL-em (np. nazwa usera), więc IsString bezpieczniejsze
   facebookLink?: string;
 
   @IsOptional()
   @IsString()
-  screenshotUrl?: string; // URL z FB
-
-  @IsOptional()
-  @IsString()
-  screenshotPath?: string; // NOWE - ścieżka pliku po uploadzie
-
-  @IsOptional()
-  @IsString()
-  scammerName?: string;
-
-  @IsOptional()
-  @IsString()
   bankAccount?: string;
+
+  @IsOptional()
+  @IsString()
+  screenshotUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  screenshotPath?: string;
+
+  // Pola dodatkowe
+  @IsOptional()
+  @IsString()
+  scammerName?: string; // Może być używane zamiennie z targetValue dla Person
 
   @IsOptional()
   @IsBoolean()
