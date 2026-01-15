@@ -50,4 +50,20 @@ export class VerificationController {
   async linkPhone(@Body() body: { nip: string; phone: string }) {
     return this.verificationService.linkPhoneToCompany(body.nip, body.phone);
   }
+
+  // === ADMIN OSOBY ===
+  @Get('admin/persons')
+  async getAllPersons() {
+    return this.verificationService.getAllPersons();
+  }
+
+  @Get('admin/person/:id')
+  async getPersonForAdmin(@Param('id') id: string) {
+    return this.verificationService.getPersonForAdmin(Number(id));
+  }
+
+  @Patch('admin/person/:id')
+  async updatePerson(@Param('id') id: string, @Body() body: any) {
+    return this.verificationService.updatePerson(Number(id), body);
+  }
 }

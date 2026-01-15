@@ -219,7 +219,9 @@ export class ReportsService {
         comment: r.comment,
         date: r.createdAt,
         screenshotPath: r.screenshotPath,
-        screenshotUrl: r.screenshotUrl
+        screenshotUrl: r.screenshotUrl,
+        phoneNumber: r.phoneNumber,
+            bankAccount: r.bankAccount
       };
     });
   }

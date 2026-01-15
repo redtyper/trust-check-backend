@@ -3,6 +3,7 @@ import { VatService } from '../integration/vat.service';
 import { PrismaService } from '../prisma.service';
 import { ReportsService } from '../reports/reports.service';
 import { Company } from '@prisma/client';
+import { PhoneNumber } from 'google-libphonenumber';
 
 @Injectable()
 export class VerificationService {
@@ -119,6 +120,8 @@ export class VerificationService {
       trustScore: finalTrustScore,
       riskLevel: this.calculateRisk(finalTrustScore),
       source: source,
+      PhoneNumber : PhoneNumber,
+      phones: phones,
       company: {
         name: companyData ? companyData.name : 'Brak danych',
         nip: companyData ? companyData.nip : nip, // <--- NAPRAWA: Dodano pole NIP
@@ -137,7 +140,9 @@ export class VerificationService {
             rating: r.rating,
             reportedEmail: r.reportedEmail,
             facebookLink: r.facebookLink,
-            screenshotUrl: r.screenshotUrl
+            screenshotUrl: r.screenshotUrl,
+             bankAccount: r.bankAccount,
+  phoneNumber: r.phoneNumber
         }))
       }
     };
@@ -147,7 +152,7 @@ export class VerificationService {
 
   async getAllCompanies() {
     return this.prisma.company.findMany({
-      select: { nip: true, name: true, statusVat: true, riskLevel: true },
+      select: { nip: true, name: true, statusVat: true, riskLevel: true, trustScore: true, updatedAt: true },
       take: 100,
       orderBy: { createdAt: 'desc' }
     });
@@ -192,6 +197,65 @@ export class VerificationService {
       where: { number: phoneNumber },
       update: { companyNip: nip, trustScore: 70 },
       create: { number: phoneNumber, countryCode: 'PL', companyNip: nip, trustScore: 70 }
+    });
+  }
+
+  async getAllPersons() {
+    return this.prisma.person.findMany({
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        bankAccount: true,
+        trustScore: true,
+        riskLevel: true,
+        createdAt: true,
+        updatedAt: true,
+        _count: { select: { reports: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+  }
+
+  async getPersonForAdmin(id: number) {
+    return this.prisma.person.findUnique({
+      where: { id },
+      include: {
+        reports: {
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+          select: {
+            id: true,
+            rating: true,
+            reason: true,
+            comment: true,
+            createdAt: true,
+            phoneNumber: true,
+            bankAccount: true,
+            reportedEmail: true,
+            facebookLink: true,
+          },
+        },
+      },
+    });
+  }
+
+  async updatePerson(id: number, data: any) {
+    if (!id || Number.isNaN(Number(id))) {
+      throw new Error('Brak poprawnego identyfikatora osoby');
+    }
+    return this.prisma.person.update({
+      where: { id },
+      data: {
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
+        bankAccount: data.bankAccount,
+        trustScore: Number(data.trustScore ?? 50),
+        riskLevel: data.riskLevel ?? 'Nieznany',
+      },
     });
   }
 
